@@ -1,6 +1,11 @@
 #include "pcap_reader.h"
 #include <iostream>
 #include <cstring>
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#include <cstdio>
+#endif
 
 namespace PacketAnalyzer {
 
@@ -16,16 +21,23 @@ bool PcapReader::open(const std::string& filename) {
     // Close any previously opened file
     close();
     
-    // Open in binary mode - this is crucial for reading raw bytes
-    file_.open(filename, std::ios::binary);
-    if (!file_.is_open()) {
-        std::cerr << "Error: Could not open file: " << filename << std::endl;
-        return false;
+    if (filename == "-") {
+#ifdef _WIN32
+        _setmode(0, _O_BINARY);
+#endif
+        stream_ = &std::cin;
+    } else {
+        file_.open(filename, std::ios::binary);
+        if (!file_.is_open()) {
+            std::cerr << "Error: Could not open file: " << filename << std::endl;
+            return false;
+        }
+        stream_ = &file_;
     }
     
     // Read the global header (first 24 bytes of the file)
-    file_.read(reinterpret_cast<char*>(&global_header_), sizeof(PcapGlobalHeader));
-    if (!file_.good()) {
+    stream_->read(reinterpret_cast<char*>(&global_header_), sizeof(PcapGlobalHeader));
+    if (!stream_->good()) {
         std::cerr << "Error: Could not read PCAP global header" << std::endl;
         close();
         return false;
@@ -62,17 +74,18 @@ void PcapReader::close() {
     if (file_.is_open()) {
         file_.close();
     }
+    stream_ = nullptr;
     needs_byte_swap_ = false;
 }
 
 bool PcapReader::readNextPacket(RawPacket& packet) {
-    if (!file_.is_open()) {
+    if (!stream_ || !stream_->good()) {
         return false;
     }
     
     // Read the packet header (16 bytes)
-    file_.read(reinterpret_cast<char*>(&packet.header), sizeof(PcapPacketHeader));
-    if (!file_.good()) {
+    stream_->read(reinterpret_cast<char*>(&packet.header), sizeof(PcapPacketHeader));
+    if (!stream_->good()) {
         // End of file or error
         return false;
     }
@@ -94,8 +107,8 @@ bool PcapReader::readNextPacket(RawPacket& packet) {
     
     // Read the packet data
     packet.data.resize(packet.header.incl_len);
-    file_.read(reinterpret_cast<char*>(packet.data.data()), packet.header.incl_len);
-    if (!file_.good()) {
+    stream_->read(reinterpret_cast<char*>(packet.data.data()), packet.header.incl_len);
+    if (!stream_->good()) {
         std::cerr << "Error: Could not read packet data" << std::endl;
         return false;
     }

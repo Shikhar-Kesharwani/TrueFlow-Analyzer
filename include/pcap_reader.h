@@ -54,13 +54,14 @@ public:
     const PcapGlobalHeader& getGlobalHeader() const { return global_header_; }
     
     // Check if file is open
-    bool isOpen() const { return file_.is_open(); }
+    bool isOpen() const { return stream_ != nullptr && stream_->good(); }
     
     // Check if we need to swap byte order
     bool needsByteSwap() const { return needs_byte_swap_; }
 
 private:
     std::ifstream file_;
+    std::istream* stream_ = nullptr;
     PcapGlobalHeader global_header_;
     bool needs_byte_swap_ = false;
     

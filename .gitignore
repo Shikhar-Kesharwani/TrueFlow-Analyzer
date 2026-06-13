@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+
+# Datasets and Large Files
+*.csv
+dataset/
+*.pcap
+*.pcapng
+
+# Machine Learning Models
+*.joblib
+*.pkl
+
+# Compiled Binaries and Objects
+*.exe
+*.o
+*.obj
+*.dll
+
+# Environment and IDE
+.env
+.vscode/
+.idea/
+*.log
+
+# Dashboard build files
+dashboard/dist/
+dashboard/build/

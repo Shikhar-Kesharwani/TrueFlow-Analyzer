@@ -102,6 +102,12 @@ struct FlowEntry {
     uint64_t bytes = 0;
     bool blocked = false;
     bool classified = false;
+    
+    // ML Features
+    std::vector<int32_t> packet_sizes;
+    std::vector<uint32_t> inter_arrival_times;
+    uint32_t last_ts_sec = 0;
+    uint32_t last_ts_usec = 0;
 };
 
 // =============================================================================
@@ -143,6 +149,61 @@ public:
         return false;
     }
 
+    void throttleApp(const std::string& app) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (int i = 0; i < static_cast<int>(AppType::APP_COUNT); i++) {
+            if (appTypeToString(static_cast<AppType>(i)) == app) {
+                throttled_apps_.insert(static_cast<AppType>(i));
+                std::cout << "[Rules] Throttled app: " << app << "\n";
+                return;
+            }
+        }
+        std::cerr << "[Rules] Unknown app: " << app << "\n";
+    }
+
+    bool shouldThrottle(AppType app) const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return throttled_apps_.count(app) > 0;
+    }
+
+    void loadRules(const std::string& filename) {
+        std::ifstream file(filename);
+        if (!file.is_open()) return;
+        std::string line;
+        std::string current_section;
+        while (std::getline(file, line)) {
+            if (line.empty()) continue;
+            if (line[0] == '[') { current_section = line; continue; }
+            if (current_section == "[BLOCKED_IPS]") blockIP(line);
+            else if (current_section == "[BLOCKED_APPS]") blockApp(line);
+            else if (current_section == "[BLOCKED_DOMAINS]") blockDomain(line);
+            else if (current_section == "[THROTTLED_APPS]") throttleApp(line);
+        }
+        std::cout << "[Rules] Loaded rules from " << filename << "\n";
+    }
+
+    void saveRules(const std::string& filename) {
+        std::ofstream file(filename);
+        if (!file.is_open()) return;
+        
+        std::lock_guard<std::mutex> lock(mutex_);
+        file << "[BLOCKED_IPS]\n";
+        for (uint32_t ip : blocked_ips_) {
+            std::ostringstream ss;
+            ss << ((ip >> 0) & 0xFF) << "." << ((ip >> 8) & 0xFF) << "."
+               << ((ip >> 16) & 0xFF) << "." << ((ip >> 24) & 0xFF);
+            file << ss.str() << "\n";
+        }
+        file << "\n[BLOCKED_APPS]\n";
+        for (AppType app : blocked_apps_) file << appTypeToString(app) << "\n";
+        file << "\n[BLOCKED_DOMAINS]\n";
+        for (const auto& dom : blocked_domains_) file << dom << "\n";
+        file << "\n[THROTTLED_APPS]\n";
+        for (AppType app : throttled_apps_) file << appTypeToString(app) << "\n";
+        
+        std::cout << "[Rules] Saved rules to " << filename << "\n";
+    }
+
 private:
     static uint32_t parseIP(const std::string& ip) {
         uint32_t result = 0;
@@ -158,6 +219,7 @@ private:
     std::unordered_set<uint32_t> blocked_ips_;
     std::unordered_set<AppType> blocked_apps_;
     std::vector<std::string> blocked_domains_;
+    std::unordered_set<AppType> throttled_apps_;
 };
 
 // =============================================================================
@@ -207,6 +269,26 @@ public:
     TSQueue<Packet>& queue() { return input_queue_; }
     
     uint64_t processed() const { return processed_; }
+    
+    void exportMLFeatures(std::ofstream& csv) {
+        for (const auto& [tuple, flow] : flows_) {
+            // Export if classified and has at least 10 packets
+            if (flow.app_type != AppType::UNKNOWN && flow.packet_sizes.size() >= 10) {
+                csv << appTypeToString(flow.app_type);
+                
+                // Pad to 50
+                for (size_t i = 0; i < 50; i++) {
+                    if (i < flow.packet_sizes.size()) csv << "," << flow.packet_sizes[i];
+                    else csv << ",0";
+                }
+                for (size_t i = 0; i < 50; i++) {
+                    if (i < flow.inter_arrival_times.size()) csv << "," << flow.inter_arrival_times[i];
+                    else csv << ",0";
+                }
+                csv << "\n";
+            }
+        }
+    }
 
 private:
     int id_;
@@ -241,6 +323,27 @@ private:
                 classifyFlow(pkt, flow);
             }
             
+            // ML Feature Extraction: Record first 50 packets
+            if (flow.packet_sizes.size() < 50) {
+                int32_t size = static_cast<int32_t>(pkt.data.size());
+                if (pkt.tuple.src_ip != flow.tuple.src_ip) {
+                    size = -size; // Incoming packet
+                }
+                flow.packet_sizes.push_back(size);
+                
+                if (flow.last_ts_sec == 0 && flow.last_ts_usec == 0) {
+                    flow.inter_arrival_times.push_back(0); // First packet has 0 IAT
+                } else {
+                    int64_t diff_sec = static_cast<int64_t>(pkt.ts_sec) - flow.last_ts_sec;
+                    int64_t diff_usec = static_cast<int64_t>(pkt.ts_usec) - flow.last_ts_usec;
+                    int64_t total_diff_usec = (diff_sec * 1000000) + diff_usec;
+                    if (total_diff_usec < 0) total_diff_usec = 0;
+                    flow.inter_arrival_times.push_back(static_cast<uint32_t>(total_diff_usec));
+                }
+                flow.last_ts_sec = pkt.ts_sec;
+                flow.last_ts_usec = pkt.ts_usec;
+            }
+            
             // Check blocking
             if (!flow.blocked) {
                 flow.blocked = rules_->isBlocked(pkt.tuple.src_ip, flow.app_type, flow.sni);
@@ -253,6 +356,9 @@ private:
             if (flow.blocked) {
                 stats_->dropped++;
             } else {
+                if (rules_->shouldThrottle(flow.app_type)) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                }
                 stats_->forwarded++;
                 output_queue_->push(std::move(pkt));
             }
@@ -279,6 +385,18 @@ private:
             if (host) {
                 flow.sni = *host;
                 flow.app_type = sniToAppType(*host);
+                flow.classified = true;
+                return;
+            }
+        }
+        
+        // Try QUIC SNI extraction for UDP port 443
+        if (pkt.tuple.protocol == 17 && pkt.tuple.dst_port == 443 && pkt.payload_length > 5) {
+            const uint8_t* payload = pkt.data.data() + pkt.payload_offset;
+            auto sni = QUICSNIExtractor::extract(payload, pkt.payload_length);
+            if (sni) {
+                flow.sni = *sni;
+                flow.app_type = sniToAppType(*sni);
                 flow.classified = true;
                 return;
             }
@@ -389,6 +507,27 @@ public:
     void blockIP(const std::string& ip) { rules_.blockIP(ip); }
     void blockApp(const std::string& app) { rules_.blockApp(app); }
     void blockDomain(const std::string& dom) { rules_.blockDomain(dom); }
+    void throttleApp(const std::string& app) { rules_.throttleApp(app); }
+    void saveRules(const std::string& file) { rules_.saveRules(file); }
+    void loadRules(const std::string& file) { rules_.loadRules(file); }
+    
+    void exportML(const std::string& filename) {
+        std::ofstream csv(filename);
+        if (!csv.is_open()) {
+            std::cerr << "Failed to open ML export file\n";
+            return;
+        }
+        
+        csv << "app_type";
+        for (int i=0; i<50; i++) csv << ",size_" << i;
+        for (int i=0; i<50; i++) csv << ",iat_" << i;
+        csv << "\n";
+        
+        for (auto& fp : fps_) {
+            fp->exportMLFeatures(csv);
+        }
+        std::cout << "[ML] Exported flow features to " << filename << "\n";
+    }
     
     bool process(const std::string& input_file, const std::string& output_file) {
         // Open input
@@ -426,6 +565,22 @@ public:
                 output.write(reinterpret_cast<const char*>(&phdr), sizeof(phdr));
                 output.write(reinterpret_cast<const char*>(pkt_opt->data.data()), pkt_opt->data.size());
             }
+        });
+
+        // Start stats thread
+        std::thread stats_thread([&]() {
+            auto start_time = std::chrono::steady_clock::now();
+            while (output_running) {
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+                if (!output_running) break;
+                auto now = std::chrono::steady_clock::now();
+                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
+                std::cout << "\r[Stats " << elapsed << "s] "
+                          << "Packets: " << stats_.total_packets.load() << " | "
+                          << "Forwarded: " << stats_.forwarded.load() << " | "
+                          << "Dropped: " << stats_.dropped.load() << std::flush;
+            }
+            std::cout << "\n";
         });
         
         // Read and dispatch packets
@@ -508,6 +663,7 @@ public:
         output_running = false;
         output_queue_.shutdown();
         output_thread.join();
+        stats_thread.join();
         
         output.close();
         
@@ -598,6 +754,10 @@ Options:
   --block-ip <ip>        Block source IP
   --block-app <app>      Block application (YouTube, Facebook, etc.)
   --block-domain <dom>   Block domain (substring match)
+  --throttle-app <app>   Throttle application (delay packets by 10ms)
+  --save-rules <file>    Save rules to file
+  --load-rules <file>    Load rules from file
+  --export-ml <file.csv> Export flow statistics to CSV for Machine Learning
   --lbs <n>              Number of load balancer threads (default: 2)
   --fps <n>              FP threads per LB (default: 2)
 
@@ -616,26 +776,37 @@ int main(int argc, char* argv[]) {
     std::string output = argv[2];
     
     DPIEngine::Config cfg;
-    std::vector<std::string> block_ips, block_apps, block_domains;
+    std::vector<std::string> block_ips, block_apps, block_domains, throttle_apps;
+    std::string save_rules_file, load_rules_file, export_ml_file;
     
     for (int i = 3; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "--block-ip" && i + 1 < argc) block_ips.push_back(argv[++i]);
         else if (arg == "--block-app" && i + 1 < argc) block_apps.push_back(argv[++i]);
         else if (arg == "--block-domain" && i + 1 < argc) block_domains.push_back(argv[++i]);
+        else if (arg == "--throttle-app" && i + 1 < argc) throttle_apps.push_back(argv[++i]);
+        else if (arg == "--save-rules" && i + 1 < argc) save_rules_file = argv[++i];
+        else if (arg == "--load-rules" && i + 1 < argc) load_rules_file = argv[++i];
+        else if (arg == "--export-ml" && i + 1 < argc) export_ml_file = argv[++i];
         else if (arg == "--lbs" && i + 1 < argc) cfg.num_lbs = std::stoi(argv[++i]);
         else if (arg == "--fps" && i + 1 < argc) cfg.fps_per_lb = std::stoi(argv[++i]);
     }
     
     DPIEngine engine(cfg);
     
+    if (!load_rules_file.empty()) engine.loadRules(load_rules_file);
+    
     for (const auto& ip : block_ips) engine.blockIP(ip);
     for (const auto& app : block_apps) engine.blockApp(app);
     for (const auto& dom : block_domains) engine.blockDomain(dom);
+    for (const auto& app : throttle_apps) engine.throttleApp(app);
     
     if (!engine.process(input, output)) {
         return 1;
     }
+    
+    if (!save_rules_file.empty()) engine.saveRules(save_rules_file);
+    if (!export_ml_file.empty()) engine.exportML(export_ml_file);
     
     std::cout << "\nOutput written to: " << output << "\n";
     return 0;

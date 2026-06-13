@@ -52,6 +52,7 @@ std::string appTypeToString(AppType type) {
         case AppType::DISCORD:    return "Discord";
         case AppType::GITHUB:     return "GitHub";
         case AppType::CLOUDFLARE: return "Cloudflare";
+        case AppType::TWITCH:     return "Twitch";
         default:                  return "Unknown";
     }
 }
@@ -187,6 +188,13 @@ AppType sniToAppType(const std::string& sni) {
     if (lower_sni.find("cloudflare") != std::string::npos ||
         lower_sni.find("cf-") != std::string::npos) {
         return AppType::CLOUDFLARE;
+    }
+    
+    // Twitch
+    if (lower_sni.find("twitch") != std::string::npos ||
+        lower_sni.find("ttvnw") != std::string::npos ||
+        lower_sni.find("jtvnw") != std::string::npos) {
+        return AppType::TWITCH;
     }
     
     // If SNI is present but not recognized, still mark as TLS/HTTPS

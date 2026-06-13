@@ -5,7 +5,11 @@
 #include <vector>
 #include <iomanip>
 #include <unordered_set>
+#include <unordered_set>
 #include <algorithm>
+#include <csignal>
+
+// We ignore SIGINT so the engine cleanly shuts down when the Python pipe closes (EOF).
 
 #include "pcap_reader.h"
 #include "packet_parser.h"
@@ -149,10 +153,18 @@ int main(int argc, char* argv[]) {
     RawPacket raw;
     ParsedPacket parsed;
     
-    std::cout << "[DPI] Processing packets...\n";
+    std::cout << "[DPI] Processing packets (Press Ctrl+C to stop and view report)..." << std::endl;
+    
+    // Ignore SIGINT; we will gracefully exit when the Python script closes the pipe (EOF)
+    signal(SIGINT, SIG_IGN);
     
     while (reader.readNextPacket(raw)) {
         total_packets++;
+        
+        // Print a heartbeat dot every 50 packets so the user knows it's capturing
+        if (total_packets % 50 == 0) {
+            std::cout << "." << std::flush;
+        }
         
         if (!PacketParser::parse(raw, parsed)) continue;
         if (!parsed.has_ip || (!parsed.has_tcp && !parsed.has_udp)) continue;
@@ -200,6 +212,10 @@ int main(int argc, char* argv[]) {
                     if (payload_len > 5) {  // Minimum TLS record header
                         auto sni = SNIExtractor::extract(raw.data.data() + payload_offset, payload_len);
                         if (sni) {
+                            if (flow.sni.empty()) {
+                                std::cout << "\n  -> Detected domain: " << *sni 
+                                          << " (" << appTypeToString(sniToAppType(*sni)) << ")" << std::endl;
+                            }
                             flow.sni = *sni;
                             flow.app_type = sniToAppType(*sni);
                         }
@@ -224,6 +240,10 @@ int main(int argc, char* argv[]) {
                     size_t payload_len = raw.data.size() - payload_offset;
                     auto host = HTTPHostExtractor::extract(raw.data.data() + payload_offset, payload_len);
                     if (host) {
+                        if (flow.sni.empty()) {
+                            std::cout << "\n  -> Detected HTTP Host: " << *host 
+                                      << " (" << appTypeToString(sniToAppType(*host)) << ")" << std::endl;
+                        }
                         flow.sni = *host;
                         flow.app_type = sniToAppType(*host);
                     }
@@ -294,7 +314,9 @@ int main(int argc, char* argv[]) {
     std::sort(sorted_apps.begin(), sorted_apps.end(),
               [](const auto& a, const auto& b) { return a.second > b.second; });
     
-    for (const auto& [app, count] : sorted_apps) {
+    for (const auto& pair : sorted_apps) {
+        auto app = pair.first;
+        auto count = pair.second;
         double pct = 100.0 * count / total_packets;
         int bar_len = static_cast<int>(pct / 5);
         std::string bar(bar_len, '#');
@@ -310,12 +332,16 @@ int main(int argc, char* argv[]) {
     // List unique SNIs
     std::cout << "\n[Detected Applications/Domains]\n";
     std::unordered_map<std::string, AppType> unique_snis;
-    for (const auto& [tuple, flow] : flows) {
+    for (const auto& pair : flows) {
+        auto tuple = pair.first;
+        auto flow = pair.second;
         if (!flow.sni.empty()) {
             unique_snis[flow.sni] = flow.app_type;
         }
     }
-    for (const auto& [sni, app] : unique_snis) {
+    for (const auto& pair : unique_snis) {
+        auto sni = pair.first;
+        auto app = pair.second;
         std::cout << "  - " << sni << " -> " << appTypeToString(app) << "\n";
     }
     
