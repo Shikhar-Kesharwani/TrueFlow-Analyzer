@@ -6,9 +6,19 @@
   <img src="https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white" />
   <img src="https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" />
   <img src="https://img.shields.io/badge/Machine_Learning-FF6F00?style=for-the-badge&logo=scikitlearn&logoColor=white" />
+  <img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" />
 </div>
 
 <br />
+
+## 📸 Dashboard Preview
+
+> **Note:** Add a screenshot of your beautiful React Dashboard here by dragging and dropping an image into GitHub!
+> 
+> *[Placeholder: Example Dashboard Screenshot]*
+> `![Dashboard Screenshot](link-to-your-image-here.png)`
+
+---
 
 ## 📖 Overview
 
@@ -30,6 +40,30 @@ If you leave your phone locked on a desk, apps like Facebook, Instagram, and Wha
 - **DoH & QUIC Bypass:** Uses static IP subnet mapping to reliably identify apps (WhatsApp, Instagram, YouTube) even when DNS requests are fully encrypted.
 - **Hybrid ML Classification:** Employs a Random Forest Machine Learning model alongside deterministic IP rules for legacy protocols.
 - **Smooth React Dashboard:** Features an exponential decay algorithm for a seamless, flicker-free UI monitoring experience.
+
+---
+
+## 📂 Repository Structure
+
+```text
+TrueFlow-Analyzer/
+├── live_dpi_engine.py         # Main Python Packet Sniffer & ML Engine
+├── sniff.py                   # Lightweight CLI network sniffer for debugging
+├── dashboard/                 # React.js Vite Frontend
+│   ├── src/
+│   │   ├── App.jsx            # Main dashboard UI component
+│   │   ├── index.css          # Beautiful glassmorphism styling
+│   │   └── ...
+├── dashboard-server/          # Node.js WebSocket Broker API
+│   └── server.js              # Express + Socket.io Server
+├── ml/                        # Machine Learning Model Generators
+│   ├── train_model.py         # Random Forest training script
+│   └── ...
+├── .github/                   # GitHub Issue Templates
+├── CONTRIBUTING.md            # Guidelines for open-source contributors
+├── LICENSE                    # MIT Open Source License
+└── README.md                  # This file
+```
 
 ---
 
@@ -80,11 +114,16 @@ Visit `http://localhost:5173` in your browser to view the live dashboard!
 
 ---
 
+## 🤝 Contributing
+
+Contributions, issues, and feature requests are welcome!
+Feel free to check out the [issues page](../../issues). Read our [Contributing Guide](CONTRIBUTING.md) for details on how to get started.
+
 ## 🛡️ Privacy & Security
 
 This tool analyzes network metadata (IP, SNI, bandwidth volume) to classify applications. It does **not** decrypt HTTPS payloads or capture private user data. It is built strictly for telemetry, network analysis, and educational purposes.
 
 ---
 <div align="center">
-  <i>Built with ❤️ to make network analysis smarter.</i>
+  <i>Built with ❤️ by <a href="https://github.com/AyushGU12">AyushGU12</a> to make network analysis smarter.</i>
 </div>
