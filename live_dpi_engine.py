@@ -128,7 +128,7 @@ def process_dns_packet(pkt):
     except Exception:
         pass
 
-API_URL = "http://localhost:3001/telemetry"
+API_URL = os.environ.get("API_URL", "http://localhost:3001/telemetry")
 
 def send_log(msg, is_alert=False):
     try:

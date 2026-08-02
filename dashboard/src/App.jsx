@@ -6,7 +6,8 @@ import {
 } from 'recharts';
 import { Activity, ShieldAlert, Zap, Network } from 'lucide-react';
 
-const socket = io('http://localhost:3001');
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const socket = io(API_URL);
 
 function App() {
   const [isConnected, setIsConnected] = useState(false);

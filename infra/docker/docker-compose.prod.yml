@@ -1,0 +1,21 @@
+version: '3.9'
+services:
+  api:
+    environment:
+      - NODE_ENV=production
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+
+  ui:
+    # In production, you would use a multi-stage Dockerfile to build the React app
+    # and serve it purely statically from Nginx, rather than running vite dev server.
+    environment:
+      - NODE_ENV=production
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M

@@ -1,0 +1,14 @@
+name: Lint
+on:
+  push: {branches: [main]}
+  pull_request: {branches: [main]}
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python lint (ruff)
+        if: hashFiles('requirements.txt') != ''
+        run: |
+          pip install ruff
+          ruff check .

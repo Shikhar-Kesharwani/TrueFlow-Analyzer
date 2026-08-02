@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: trueflow-analyzer-api
+    env: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: PORT
+        value: 3001
+      - key: NODE_ENV
+        value: production
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+    healthCheckPath: /health

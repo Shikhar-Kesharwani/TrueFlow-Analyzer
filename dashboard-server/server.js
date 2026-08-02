@@ -4,17 +4,24 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 
 const app = express();
-app.use(cors());
+const origins = (process.env.ALLOWED_ORIGINS || '*').split(',');
+app.use(cors({ origin: origins, credentials: true }));
 
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
+    origin: origins,
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
 
 app.use(express.json());
+
+const startTime = Date.now();
+app.get('/health', (req, res) => res.json({ status: 'ok', uptime: (Date.now() - startTime) / 1000 }));
+app.get('/ready', (req, res) => res.json({ status: 'ready' }));
+app.get('/live',  (req, res) => res.json({ status: 'alive' }));
 
 // Persistent accumulated app counts - never wiped, only grows
 let appAccumulator = {};
@@ -109,7 +116,7 @@ io.on('connection', (socket) => {
   console.log('React Dashboard connected');
 });
 
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`Real DPI Server API listening on port ${PORT}`);
 });

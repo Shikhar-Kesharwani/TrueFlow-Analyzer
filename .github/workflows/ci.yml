@@ -1,0 +1,19 @@
+name: CI
+on:
+  push: {branches: [main, develop]}
+  pull_request: {branches: [main]}
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -t app:ci .
+      - name: Start and health check
+        run: |
+          docker run -d --name ci_app -p 3001:3001 -e PORT=3001 app:ci
+          sleep 20
+          curl -f http://localhost:3001/health || (docker logs ci_app && exit 1)
+      - name: Cleanup
+        if: always()
+        run: docker rm -f ci_app
