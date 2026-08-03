@@ -2,6 +2,8 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const mongoose = require('mongoose');
+const TrafficStat = require('./models/TrafficStat');
 
 const app = express();
 const origins = (process.env.ALLOWED_ORIGINS || '*').split(',');
@@ -23,6 +25,44 @@ app.get('/health', (req, res) => res.json({ status: 'ok', uptime: (Date.now() - 
 app.get('/ready', (req, res) => res.json({ status: 'ready' }));
 app.get('/live',  (req, res) => res.json({ status: 'alive' }));
 
+if (process.env.MONGO_URI) {
+  mongoose.connect(process.env.MONGO_URI)
+    .then(() => console.log('Connected to MongoDB Atlas'))
+    .catch(err => console.error('MongoDB connection error:', err));
+}
+
+async function sendDiscordAlert(message) {
+  if (process.env.ALERT_WEBHOOK_URL) {
+    try {
+      await fetch(process.env.ALERT_WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: `🚨 **TrueFlow Alert:** ${message}` })
+      });
+    } catch (e) {
+      console.error('Webhook error:', e);
+    }
+  }
+}
+
+const requireAuth = (req, res, next) => {
+  const token = req.headers['authorization'];
+  if (process.env.DASHBOARD_PASSWORD && token !== process.env.DASHBOARD_PASSWORD) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+};
+
+app.get('/api/history', requireAuth, async (req, res) => {
+  if (!process.env.MONGO_URI) return res.json([]);
+  try {
+    const history = await TrafficStat.find().sort({ timestamp: -1 }).limit(100);
+    res.json(history.reverse());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Persistent accumulated app counts - never wiped, only grows
 let appAccumulator = {};
 
@@ -43,6 +83,7 @@ app.post('/telemetry', (req, res) => {
   if (data.action === 'log') {
     state.logs.unshift({ id: Date.now(), text: data.message, isAlert: data.isAlert });
     if (state.logs.length > 15) state.logs.pop();
+    if (data.isAlert) sendDiscordAlert(data.message);
   } else if (data.action === 'stats') {
     state.totalPackets = data.totalPackets;
     state.activeFlows = data.activeFlows;
@@ -107,9 +148,35 @@ app.post('/telemetry', (req, res) => {
       apps: state.appBreakdown,
       logs: state.logs
     });
+    
+    // Save to Mongo every 10 seconds to avoid spamming DB
+    const now = Date.now();
+    if (process.env.MONGO_URI && (!state.lastDbSave || now - state.lastDbSave > 10000)) {
+      state.lastDbSave = now;
+      const stat = new TrafficStat({
+        totalPackets: state.totalPackets,
+        activeFlows: state.activeFlows,
+        currentBandwidth: state.currentBandwidth,
+        pps: data.pps || 0,
+        topApps: state.appBreakdown
+      });
+      stat.save().catch(err => console.error('DB Save error:', err));
+    }
   }
   
   res.sendStatus(200);
+});
+
+// Socket Auth Middleware
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token;
+  if (process.env.DASHBOARD_PASSWORD) {
+    if (token === process.env.DASHBOARD_PASSWORD) {
+      return next();
+    }
+    return next(new Error('Authentication error'));
+  }
+  next();
 });
 
 io.on('connection', (socket) => {

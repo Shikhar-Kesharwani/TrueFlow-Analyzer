@@ -7,10 +7,12 @@ import {
 import { Activity, ShieldAlert, Zap, Network } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-const socket = io(API_URL);
 
 function App() {
+  const [password, setPassword] = useState(localStorage.getItem('dashboard_password') || '');
+  const [authError, setAuthError] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
+  
   const [stats, setStats] = useState({
     totalPackets: 0,
     forwardedPackets: 0,
@@ -24,10 +26,40 @@ function App() {
   const [logs, setLogs] = useState([]);
 
   useEffect(() => {
-    socket.on('connect', () => setIsConnected(true));
-    socket.on('disconnect', () => setIsConnected(false));
+    const s = io(API_URL, { auth: { token: password } });
+
+    s.on('connect', () => {
+      setIsConnected(true);
+      setAuthError(false);
+      localStorage.setItem('dashboard_password', password);
+      
+      // Fetch historical data from MongoDB
+      fetch(`${API_URL}/api/history`, { headers: { authorization: password } })
+        .then(res => res.json())
+        .then(data => {
+          if(data && data.length > 0) {
+            const hist = data.map(d => ({
+              time: new Date(d.timestamp).toLocaleTimeString(),
+              pps: d.pps
+            }));
+            setTrafficHistory(hist);
+            // Pre-fill latest stats
+            const latest = data[data.length - 1];
+            setStats(prev => ({ ...prev, currentBandwidth: latest.currentBandwidth, activeFlows: latest.activeFlows, totalPackets: latest.totalPackets }));
+            setApps(latest.topApps || []);
+          }
+        }).catch(err => console.log('History fetch error or not configured'));
+    });
+
+    s.on('disconnect', () => setIsConnected(false));
     
-    socket.on('telemetry', (data) => {
+    s.on('connect_error', (err) => {
+      if (err.message === 'Authentication error') {
+        setAuthError(true);
+      }
+    });
+    
+    s.on('telemetry', (data) => {
       setStats(data.stats);
       setApps(data.apps);
       setLogs(data.logs);
@@ -40,11 +72,31 @@ function App() {
     });
 
     return () => {
-      socket.off('connect');
-      socket.off('disconnect');
-      socket.off('telemetry');
+      s.disconnect();
     };
-  }, []);
+  }, [password]);
+
+  if (authError) {
+    return (
+      <div className="dashboard-container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <div className="card" style={{ padding: '3rem', textAlign: 'center', maxWidth: '400px' }}>
+          <ShieldAlert size={48} color="var(--accent-red)" style={{ marginBottom: '1rem' }} />
+          <h2 style={{ marginBottom: '1rem' }}>Secure Login</h2>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>Please enter your dashboard password.</p>
+          <input 
+            type="password" 
+            placeholder="Password" 
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            style={{ 
+              width: '100%', padding: '1rem', background: '#0F172A', color: 'white', 
+              border: '1px solid #334155', borderRadius: '8px', fontSize: '16px' 
+            }}
+          />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="dashboard-container">
