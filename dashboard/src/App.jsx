@@ -8,6 +8,7 @@ import { Activity, ShieldAlert, Zap, Network } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
+// TrueFlow Analyzer Dashboard Main App Component
 function App() {
   const [password, setPassword] = useState(localStorage.getItem('dashboard_password') || '');
   const [authError, setAuthError] = useState(false);
