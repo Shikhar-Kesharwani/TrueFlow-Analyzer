@@ -39,3 +39,10 @@ dashboard/build/
 data/
 Artifacts/
 infra/docker/.env
+
+# Massive Datasets & Models
+dataset/
+*.joblib
+*.pcap
+*.pcapng
+*.csv

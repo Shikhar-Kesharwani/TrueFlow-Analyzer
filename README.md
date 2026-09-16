@@ -1,4 +1,4 @@
-<div align="center">
+﻿<div align="center">
   <h1>🚀 TrueFlow-Analyzer</h1>
   <p><strong>Next-Generation Deep Packet Inspection (DPI) & Telemetry Engine</strong></p>
   
@@ -89,7 +89,7 @@ The system is composed of three interconnected layers:
 #### 1. Start the DPI Engine
 Open a terminal as Administrator/root:
 ```bash
-git clone https://github.com/AyushGU12/TrueFlow-Analyzer.git
+git clone https://github.com/Shikhar-Kesharwani/DEEP_PACKET_INSPECTION.git
 cd TrueFlow-Analyzer
 python live_dpi_engine.py --mode live
 ```
@@ -125,7 +125,7 @@ This tool analyzes network metadata (IP, SNI, bandwidth volume) to classify appl
 
 ---
 <div align="center">
-  <i>Built with ❤️ by <a href="https://github.com/AyushGU12">AyushGU12</a> to make network analysis smarter.</i>
+  <i>Built with ❤️ by <a href="https://github.com/Shikhar-Kesharwani">Shikhar-Kesharwani</a> to make network analysis smarter.</i>
 </div>
 
 ## Deployment
