@@ -46,3 +46,8 @@ dataset/
 *.pcap
 *.pcapng
 *.csv
+
+# Precompiled binaries and local output captures
+dpi_engine
+output.pcap
+.env*.local

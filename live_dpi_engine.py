@@ -129,10 +129,14 @@ def process_dns_packet(pkt):
         pass
 
 API_URL = os.environ.get("API_URL", "http://localhost:3001/telemetry")
+TELEMETRY_KEY = os.environ.get("TELEMETRY_KEY", "")
+
+def _get_headers():
+    return {"X-Telemetry-Key": TELEMETRY_KEY} if TELEMETRY_KEY else {}
 
 def send_log(msg, is_alert=False):
     try:
-        requests.post(API_URL, json={"action": "log", "message": msg, "isAlert": is_alert})
+        requests.post(API_URL, json={"action": "log", "message": msg, "isAlert": is_alert}, headers=_get_headers())
         print(msg)
     except:
         pass
@@ -147,7 +151,7 @@ def send_stats(total_packets, active_flows, pps, bandwidth_mbps, app_counts):
             "pps": pps,
             "bandwidth": bandwidth_mbps,
             "apps": apps_payload
-        })
+        }, headers=_get_headers())
     except:
         pass
 

@@ -1,18 +1,19 @@
-
-FROM python:3.11-slim AS builder
-WORKDIR /build
-COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
-
-FROM python:3.11-slim AS production
+FROM node:18-alpine AS production
 WORKDIR /app
-RUN addgroup --system app && adduser --system --group app
-COPY --from=builder /root/.local /home/app/.local
-COPY . .
-RUN chown -R app:app /app
-USER app
-ENV PATH=/home/app/.local/bin:$PATH
-EXPOSE 5000
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-  CMD curl -f http://localhost:5000/health || exit 1
-CMD [""node", "server.js""]
+
+# Copy server dependency definitions
+COPY dashboard-server/package*.json ./dashboard-server/
+
+# Install production dependencies
+RUN cd dashboard-server && npm ci --only=production
+
+# Copy server application code
+COPY dashboard-server/ ./dashboard-server/
+
+# Run as non-root user for container security
+USER node
+
+WORKDIR /app/dashboard-server
+
+EXPOSE 3001
+CMD ["node", "server.js"]

@@ -2,23 +2,34 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const crypto = require('crypto');
 const mongoose = require('mongoose');
 const TrafficStat = require('./models/TrafficStat');
 
 const app = express();
-const origins = (process.env.ALLOWED_ORIGINS || '*').split(',');
-app.use(cors({ origin: origins, credentials: true }));
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  : ['http://localhost:5173', 'http://localhost:3000'];
+app.use(cors({ origin: allowedOrigins, credentials: true }));
 
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: origins,
+    origin: allowedOrigins,
     methods: ["GET", "POST"],
     credentials: true
   }
 });
 
 app.use(express.json());
+
+function safeCompare(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 const startTime = Date.now();
 app.get('/health', (req, res) => res.json({ status: 'ok', uptime: (Date.now() - startTime) / 1000 }));
@@ -47,8 +58,10 @@ async function sendDiscordAlert(message) {
 
 const requireAuth = (req, res, next) => {
   const token = req.headers['authorization'];
-  if (process.env.DASHBOARD_PASSWORD && token !== process.env.DASHBOARD_PASSWORD) {
-    return res.status(401).json({ error: 'Unauthorized' });
+  if (process.env.DASHBOARD_PASSWORD) {
+    if (!token || !safeCompare(token, process.env.DASHBOARD_PASSWORD)) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
   }
   next();
 };
@@ -78,6 +91,12 @@ let state = {
 
 // Accept real data from Python Engine
 app.post('/telemetry', (req, res) => {
+  if (process.env.TELEMETRY_KEY) {
+    const clientKey = req.headers['x-telemetry-key'] || req.query.key;
+    if (!clientKey || !safeCompare(clientKey, process.env.TELEMETRY_KEY)) {
+      return res.status(401).json({ error: 'Unauthorized telemetry sender' });
+    }
+  }
   const data = req.body;
   
   if (data.action === 'log') {
@@ -171,7 +190,7 @@ app.post('/telemetry', (req, res) => {
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
   if (process.env.DASHBOARD_PASSWORD) {
-    if (token === process.env.DASHBOARD_PASSWORD) {
+    if (token && safeCompare(token, process.env.DASHBOARD_PASSWORD)) {
       return next();
     }
     return next(new Error('Authentication error'));
@@ -186,4 +205,10 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`Real DPI Server API listening on port ${PORT}`);
+  if (!process.env.DASHBOARD_PASSWORD) {
+    console.warn('[SECURITY NOTICE] DASHBOARD_PASSWORD is not set. Running in open-access mode.');
+  }
+  if (!process.env.TELEMETRY_KEY) {
+    console.warn('[SECURITY NOTICE] TELEMETRY_KEY is not set. /telemetry accepts packets without shared secret.');
+  }
 });
